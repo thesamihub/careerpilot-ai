@@ -1,0 +1,60 @@
+{
+  "_note": "Fictional example. Copy to private/master_cv.json and replace with YOUR real, verifiable facts. The system only selects lines from this file and never adds to it.",
+  "contact": {
+    "name": "Alex Example",
+    "city": "Example City, Country",
+    "email": "alex@example.com",
+    "phone": "+00 000 0000000",
+    "github": "github.com/example",
+    "linkedin": "linkedin.com/in/example"
+  },
+  "headlines": {
+    "devops": "Aspiring DevOps Engineer | Computer Science Undergraduate",
+    "it_support": "IT Support | Technical Roles | Computer Science Undergraduate",
+    "wordpress": "WordPress Developer | Web Developer"
+  },
+  "summaries": {
+    "devops": "Two or three honest sentences for DevOps roles.",
+    "it_support": "Two or three honest sentences for IT support roles.",
+    "wordpress": "Two or three honest sentences for WordPress roles."
+  },
+  "skill_levels": "strong | working | project (used in my own projects) | basic | exposure | learning",
+  "skills": [
+    { "name": "Docker", "group": "containers", "level": "project", "tracks": ["devops", "it_support"] },
+    { "name": "Linux", "group": "systems", "level": "working", "tracks": ["devops", "it_support", "wordpress"] },
+    { "name": "Kubernetes", "group": "containers", "level": "learning", "tracks": ["devops"] },
+    { "name": "WordPress", "group": "web", "level": "working", "tracks": ["wordpress"] }
+  ],
+  "experience": [
+    {
+      "id": "exp1",
+      "title": "Example Role",
+      "org": "Example Company",
+      "dates": "Jan 2025 – Mar 2025",
+      "bullets": [
+        { "id": "exp1-b1", "text": "One true, specific thing you did.", "tags": ["web", "wordpress"], "tracks": ["devops", "it_support", "wordpress"] }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj1",
+      "name": "Example Project",
+      "link": "github.com/example/project",
+      "bullets": [
+        {
+          "id": "proj1-b1",
+          "text": "Default wording used for most tracks.",
+          "variants": { "it_support": "Plainer wording for IT support CVs." },
+          "tags": ["docker", "linux"],
+          "tracks": ["devops", "it_support"]
+        }
+      ]
+    }
+  ],
+  "education": [
+    { "school": "Example University", "program": "BSc Computer Science", "dates": "2024 – Present", "note": "" }
+  ],
+  "certifications": [],
+  "availability": { "it_support": "Available for full-time work, including shift-based roles." }
+}
