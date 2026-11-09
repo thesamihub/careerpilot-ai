@@ -1,0 +1,1097 @@
+{
+  "name": "CareerPilot - Job Discovery",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1008,
+        -240
+      ],
+      "id": "fb78d9f6-5f3d-40f5-958f-bd17e0a7c758",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "url": "https://remotive.com/api/remote-jobs",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -400,
+        -112
+      ],
+      "id": "4a3e1619-fbdd-4434-9b42-c76bcc3429dd",
+      "name": "Fetch Remotive Jobs"
+    },
+    {
+      "parameters": {
+        "url": "https://www.arbeitnow.com/api/job-board-api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "page",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -400,
+        -304
+      ],
+      "id": "a1acd026-2d99-4280-bed6-7bbff60a00ac",
+      "name": "Fetch Arbeitnow Jobs"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst jobs = response.data || [];\n\nconst keywords = [\n  \"devops\",\n  \"site reliability\",\n  \"sre\",\n  \"cloud engineer\",\n  \"cloud infrastructure\",\n  \"aws\",\n  \"azure\",\n  \"google cloud\",\n  \"kubernetes\",\n  \"docker\",\n  \"linux\",\n  \"system administrator\",\n  \"systems administrator\",\n  \"network engineer\",\n  \"infrastructure engineer\",\n  \"platform engineer\",\n  \"it support\",\n  \"system engineer\",\n  \"technical support\",\n  \"wordpress\"\n];\n\nfunction cleanHtml(value = \"\") {\n  return value\n    .replace(/<[^>]*>/g, \" \")\n    .replace(/&nbsp;/g, \" \")\n    .replace(/&amp;/g, \"&\")\n    .replace(/\\s+/g, \" \")\n    .trim();\n}\n\nconst results = [];\n\nfor (const job of jobs) {\n  const title = job.title || \"\";\n  const description = cleanHtml(job.description || \"\");\n  const tags = Array.isArray(job.tags)\n    ? job.tags.join(\" \")\n    : \"\";\n\n  const searchable =\n    `${title} ${description} ${tags}`.toLowerCase();\n\n  const matchedKeywords = keywords.filter(keyword =>\n    searchable.includes(keyword)\n  );\n\n  if (matchedKeywords.length === 0) continue;\n\n  // Only accept explicitly remote roles or\n  // opportunities located in Karachi/Pakistan.\n  const location = job.location || \"Not specified\";\n\n  const isRemote = job.remote === true;\n\n  const isPakistan =\n    /karachi|pakistan/i.test(location);\n\n  if (!isRemote && !isPakistan) continue;\n\n  const externalId =\n    String(job.slug || job.url || job.id || \"\");\n\n  if (!externalId) continue;\n\n  results.push({\n    json: {\n      source: \"Arbeitnow\",\n      external_id: externalId,\n      title,\n      company: job.company_name || \"Unknown\",\n      location,\n      job_url: job.url || \"\",\n      description,\n      category: tags,\n      job_type: Array.isArray(job.job_types)\n        ? job.job_types.join(\", \")\n        : \"Not specified\",\n      salary: job.salary || \"Not specified\",\n      posted_at: job.created_at || \"\",\n      is_remote: isRemote,\n      matched_keywords: matchedKeywords.join(\", \"),\n      discovered_at: new Date().toISOString(),\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -176,
+        -304
+      ],
+      "id": "291b6dfc-2b8c-4dcb-bcea-1ca6120e64d6",
+      "name": "Format Arbeitnow Jobs"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst jobs = response.jobs || [];\n\nconst keywords = [\n  \"devops\",\n  \"site reliability\",\n  \"sre\",\n  \"cloud engineer\",\n  \"cloud infrastructure\",\n  \"aws\",\n  \"azure\",\n  \"google cloud\",\n  \"docker\",\n  \"linux\",\n  \"system administrator\",\n  \"systems administrator\",\n  \"network engineer\",\n  \"infrastructure engineer\",\n  \"platform engineer\",\n  \"it support\",\n  \"system engineer\",\n  \"technical support\",\n  \"wordpress\"\n];\n\nfunction cleanHtml(value = \"\") {\n  return value\n    .replace(/<[^>]*>/g, \" \")\n    .replace(/&nbsp;/g, \" \")\n    .replace(/&amp;/g, \"&\")\n    .replace(/\\s+/g, \" \")\n    .trim();\n}\n\nconst results = [];\n\nfor (const job of jobs) {\n  const title = job.title || \"\";\n  const description = cleanHtml(job.description || \"\");\n  const category = job.category || \"\";\n\n  const searchable = `${title} ${description} ${category}`\n    .toLowerCase();\n\n  const matchedKeywords = keywords.filter(keyword =>\n    searchable.includes(keyword)\n  );\n\n  if (matchedKeywords.length === 0) continue;\n\n  results.push({\n    json: {\n      source: \"Remotive\",\n      external_id: String(job.id),\n      title,\n      company: job.company_name || \"Unknown\",\n      location: job.candidate_required_location || \"Not specified\",\n      job_url: job.url || \"\",\n      description,\n      category,\n      job_type: job.job_type || \"Not specified\",\n      salary: job.salary || \"Not specified\",\n      posted_at: job.publication_date || \"\",\n      is_remote: true,\n      matched_keywords: matchedKeywords.join(\", \"),\n      discovered_at: new Date().toISOString(),\n    }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -176,
+        0
+      ],
+      "id": "0b440f08-585d-469d-9d54-028f5240013a",
+      "name": "Format Remotive Jobs"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "Vi53INYcRrwTiiKm",
+          "mode": "list",
+          "cachedResultName": "careerpilot_jobs",
+          "cachedResultUrl": "/projects/RuqWie8Q07Os2caC/datatables/Vi53INYcRrwTiiKm"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "source",
+              "keyValue": "={{ $json.source }}"
+            },
+            {
+              "keyName": "external_id",
+              "keyValue": "={{ $json.external_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "is_remote": "={{ $json.is_remote }}",
+            "source": "={{ $json.source }}",
+            "external_id": "={{ $json.external_id }}",
+            "title": "={{ $json.title }}",
+            "location": "={{ $json.location }}",
+            "company": "={{ $json.company }}",
+            "job_url": "={{ $json.job_url }}",
+            "job_type": "={{ $json.job_type }}",
+            "category": "={{ $json.category }}",
+            "description": "={{ $json.description }}",
+            "salary": "={{ $json.salary }}",
+            "posted_at": "={{ $json.posted_at }}",
+            "discovered_at": "={{ $json.discovered_at }}",
+            "matched_keywords": "={{ $json.matched_keywords }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_url",
+              "displayName": "job_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_type",
+              "displayName": "job_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "salary",
+              "displayName": "salary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "posted_at",
+              "displayName": "posted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "is_remote",
+              "displayName": "is_remote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "matched_keywords",
+              "displayName": "matched_keywords",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "discovered_at",
+              "displayName": "discovered_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        0
+      ],
+      "id": "eb5c1018-fd26-473d-8e44-05a82980c008",
+      "name": "Upsert Remotive Jobs"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "Vi53INYcRrwTiiKm",
+          "mode": "list",
+          "cachedResultName": "careerpilot_jobs",
+          "cachedResultUrl": "/projects/RuqWie8Q07Os2caC/datatables/Vi53INYcRrwTiiKm"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "source",
+              "keyValue": "={{ $json.source }}"
+            },
+            {
+              "keyName": "external_id",
+              "keyValue": "={{ $json.external_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "is_remote": "={{ $json.is_remote }}",
+            "source": "={{ $json.source }}",
+            "external_id": "={{ $json.external_id }}",
+            "title": "={{ $json.title }}",
+            "location": "={{ $json.location }}",
+            "company": "={{ $json.company }}",
+            "job_url": "={{ $json.job_url }}",
+            "job_type": "={{ $json.job_type }}",
+            "category": "={{ $json.category }}",
+            "description": "={{ $json.description }}",
+            "salary": "={{ $json.salary }}",
+            "posted_at": "={{ $json.posted_at }}",
+            "discovered_at": "={{ $json.discovered_at }}",
+            "matched_keywords": "={{ $json.matched_keywords }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_url",
+              "displayName": "job_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_type",
+              "displayName": "job_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "salary",
+              "displayName": "salary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "posted_at",
+              "displayName": "posted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "is_remote",
+              "displayName": "is_remote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "matched_keywords",
+              "displayName": "matched_keywords",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "discovered_at",
+              "displayName": "discovered_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        48,
+        -304
+      ],
+      "id": "2aaab612-609d-4d9d-855c-ea1b295e8686",
+      "name": "Upsert Arbeitnow Jobs"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "filters": {
+          "q": "{from:donotreply@jobalert.indeed.com from:donotreply@match.indeed.com from:jobalerts-noreply@linkedin.com} newer_than:3d",
+          "readStatus": "both"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -400,
+        320
+      ],
+      "id": "008a6318-5248-4a05-8d9b-2f68507edfc9",
+      "name": "Get many messages",
+      "webhookId": "26a518f4-070c-4435-b2b2-5ae55e1c8108",
+      "alwaysOutputData": false,
+      "retryOnFail": false,
+      "notesInFlow": false,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "fxIMWhcl6Ns9Oe5v",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "simple": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        320
+      ],
+      "id": "9fa7e6c5-c47e-45cb-9b16-d4adcefd1ba1",
+      "name": "Get a message",
+      "webhookId": "f495b331-2099-48d1-8715-bcc9e4ae5421",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "fxIMWhcl6Ns9Oe5v",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function decodeBase64Url(value) {\n  if (!value) return '';\n  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');\n  return Buffer.from(normalized, 'base64').toString('utf8');\n}\n\nfunction extractParts(payload) {\n  let html = '', plain = '';\n  function walk(part) {\n    if (!part) return;\n    const mime = part.mimeType || '';\n    const data = part.body?.data;\n    if (data && !part.filename) {\n      const d = decodeBase64Url(data);\n      if (mime === 'text/html') html += d;\n      else if (mime === 'text/plain') plain += d;\n    }\n    for (const c of part.parts || []) walk(c);\n  }\n  walk(payload);\n  return { html, plain };\n}\n\n// Decode =?UTF-8?Q?...?= subjects\nfunction decodeSubject(s) {\n  if (!s) return '';\n  s = String(s).replace(/^Subject:\\s*/i, '').replace(/\\r?\\n\\s*/g, '');\n  s = s.replace(/=\\?UTF-8\\?Q\\?(.*?)\\?=/gi, (_, q) =>\n    Buffer.from(\n      q.replace(/_/g, ' ').replace(/=([0-9A-F]{2})/gi, (m, h) => String.fromCharCode(parseInt(h, 16))),\n      'binary'\n    ).toString('utf8')\n  );\n  return s.replace(/\\s+/g, ' ').trim();\n}\n\nfunction extractLinks(html) {\n  const links = [];\n  const re = /href=\"([^\"]+)\"/gi;\n  let m;\n  while ((m = re.exec(html)) !== null) links.push(m[1].replace(/&amp;/g, '&'));\n  return [...new Set(links)];\n}\n\nreturn $input.all().map(item => {\n  const e = item.json;\n  let html = '', text = '', layout = 'none';\n\n  if (e.html || e.text) {\n    html = typeof e.html === 'string' ? e.html : '';\n    text = typeof e.text === 'string' ? e.text : '';\n    layout = 'parsed (top-level html/text)';\n  } else if (e.payload) {\n    const b = extractParts(e.payload);\n    html = b.html; text = b.plain;\n    layout = 'gmail payload';\n  }\n\n  const fromRaw = typeof e.from === 'object' ? (e.from?.text || '') : (e.from || e.headers?.from || '');\n  const subjRaw = e.subject || e.headers?.subject || '';\n\n  return {\n    json: {\n      source: String(fromRaw).toLowerCase().includes('indeed') ? 'Indeed' : 'LinkedIn',\n      external_id: e.id,\n      email_subject: decodeSubject(subjRaw),\n      email_sender: String(fromRaw),\n      email_date: e.date || e.internalDate || '',\n      layout_found: layout,\n      top_level_keys: Object.keys(e).join(', '),\n      email_text_length: text.length,\n      email_html_length: html.length,\n      email_link_count: extractLinks(html).length,\n      email_text: text,\n      email_html: html,\n      imported_at: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        320
+      ],
+      "id": "526b0144-6488-4898-ada5-696bce7fd687",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "a5591f57-fe59-4dab-b8c5-506d07810169",
+              "leftValue": "={{ $json.relevant }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        544,
+        320
+      ],
+      "id": "72824c01-397b-4da6-8e22-57d3444b3156",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "const KEYWORDS = [\n  \"devops\",\"site reliability\",\"sre\",\"cloud engineer\",\"cloud infrastructure\",\n  \"cloud administrator\",\"cloud developer\",\"aws\",\"azure\",\"google cloud\",\n  \"kubernetes\",\"docker\",\"linux\",\"system administrator\",\"systems administrator\",\n  \"network engineer\",\"infrastructure engineer\",\"platform engineer\",\"it support\",\n  \"system engineer\",\"technical support\",\"kafka\",\"ci/cd\",\"terraform\",\"ansible\",\"wordpress\"\n];\n\nfunction matchKeywords(text) {\n  return KEYWORDS.filter(k => {\n    const esc = k.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n    return new RegExp('(^|[^a-z0-9])' + esc + '([^a-z0-9]|$)', 'i').test(text);\n  });\n}\n\nconst seen = new Map();\n\nfor (const item of $input.all()) {\n  const e = item.json;\n  // Accept standard Indeed source or generic email alert sources carrying Indeed text\n  if (!e.source || !e.source.toLowerCase().includes('indeed')) continue;\n\n  const emailContent = e.email_text || e.text || '';\n  const blocks = emailContent.split(/\\n\\s*\\n/);\n\n  for (const b of blocks) {\n    const lines = b.split('\\n').map(l => l.trim()).filter(Boolean);\n    \n    // Find any Indeed or Engage tracking URL in the block\n    const urlIdx = lines.findIndex(l => /(https:\\/\\/(?:[a-z.]*indeed\\.com\\/rc\\/clk|engage\\.indeed\\.com\\/f\\/a\\/))/i.test(l));\n    if (urlIdx < 1 || lines.length < 2) continue;\n\n    const urlLine = lines[urlIdx];\n    const title = lines[0];\n    const cl = lines[1] || '';\n    const idx = cl.lastIndexOf(' - ');\n    const company = idx > 0 ? cl.slice(0, idx) : cl;\n    const location = idx > 0 ? cl.slice(idx + 3) : '';\n\n    const jkMatch = urlLine.match(/[?&]jk=([a-z0-9]+)/i);\n    const jk = jkMatch\n      ? jkMatch[1]\n      : 'eng_' + (title + company + location).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 60);\n    if (seen.has(jk)) continue;\n\n    const rest = lines.slice(2, urlIdx);\n    const salary = rest.find(l => /^(From |Up to )?Rs\\s/i.test(l)) || '';\n    const posted = rest.find(l => /^(Just posted|Today|\\d+\\+? days? ago|\\d+ hours? ago)/i.test(l)) || '';\n    const snippet = rest\n      .filter(l => l !== salary && l !== posted && l !== 'Easily apply')\n      .join(' ');\n\n    const kws = matchKeywords(title + ' ' + snippet);\n\n    seen.set(jk, {\n      json: {\n        source: 'Indeed',\n        external_id: jk,\n        title,\n        company,\n        location,\n        job_url: jkMatch ? 'https://pk.indeed.com/viewjob?jk=' + jk : urlLine,\n        description: snippet,\n        category: '',\n        job_type: '',\n        salary,\n        posted_at: posted,\n        is_remote: /remote/i.test(title + ' ' + location + ' ' + snippet),\n        matched_keywords: kws.join(', '),\n        discovered_at: new Date().toISOString(),\n        status: 'new',\n        relevant: kws.length > 0\n      }\n    });\n  }\n}\n\nreturn [...seen.values()];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        224
+      ],
+      "id": "6a941b2d-00a3-4273-a891-122898c070af",
+      "name": "Parse Indeed Alerts"
+    },
+    {
+      "parameters": {
+        "jsCode": "const KEYWORDS = [\n  \"devops\",\"site reliability\",\"sre\",\"cloud engineer\",\"cloud infrastructure\",\n  \"cloud administrator\",\"cloud developer\",\"aws\",\"azure\",\"google cloud\",\n  \"kubernetes\",\"docker\",\"linux\",\"system administrator\",\"systems administrator\",\n  \"network engineer\",\"infrastructure engineer\",\"platform engineer\",\"it support\",\n  \"system engineer\",\"technical support\",\"kafka\",\"ci/cd\",\"terraform\",\"ansible\",\"cloud support\",\"cloudops\",\"wordpress\"\n];\n\nfunction matchKeywords(text) {\n  return KEYWORDS.filter(k => {\n    const esc = k.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n    return new RegExp('(^|[^a-z0-9])' + esc + '([^a-z0-9]|$)', 'i').test(text);\n  });\n}\n\nconst NOISE = /(actively hiring|actively recruiting|new jobs from your other alerts|<strong|^your job alert|new jobs match|^manage alerts|^see all jobs)/i;\nconst seen = new Map();\nconst seenKey = new Set();\n\nfor (const item of $input.all()) {\n  const e = item.json;\n  if (e.source !== 'LinkedIn') continue;\n\n  let buf = [];\n  for (const raw of (e.email_text || '').split('\\n')) {\n    const line = raw.trim();\n    if (!line) continue;\n\n    if (/^-{5,}$/.test(line)) { buf = []; continue; }\n\n    const m = line.match(/^View job:\\s*(https?:\\/\\/\\S+)/i);\n    if (m) {\n      const idMatch = m[1].match(/\\/jobs\\/view\\/(\\d+)/);\n      if (idMatch && buf.length >= 3 && !seen.has(idMatch[1])) {\n        const [title, company, location] = buf.slice(-3);\n        const id = idMatch[1];\n        const key = (company + '|' + title + '|' + location).toLowerCase();\n        if (seenKey.has(key)) { buf = []; continue; }\n        seenKey.add(key);\n\n        const is_remote = /remote/i.test(title + ' ' + location);\n        const inPakistan = /karachi|pakistan/i.test(location);\n        const openRegion = /worldwide|global|anywhere|apac|asia/i.test(location);\n        const eligible = inPakistan || (is_remote && openRegion);\n        const kws = matchKeywords(title);\n\n        seen.set(id, { json: {\n          source: 'LinkedIn',\n          external_id: id,\n          title,\n          company,\n          location,\n          job_url: 'https://www.linkedin.com/jobs/view/' + id + '/',\n          description: '',\n          category: '',\n          job_type: '',\n          salary: '',\n          posted_at: '',\n          is_remote,\n          matched_keywords: kws.join(', '),\n          discovered_at: new Date().toISOString(),\n          status: 'new',\n          relevant: kws.length > 0 && eligible\n        }});\n      }\n      buf = [];\n      continue;\n    }\n\n    if (NOISE.test(line)) continue;\n    buf.push(line);\n  }\n}\n\nreturn [...seen.values()];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        416
+      ],
+      "id": "0ed70ea8-e9f9-49f0-82a5-f63331abf596",
+      "name": "Parse Linkedin Alerts"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 22
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -1008,
+        272
+      ],
+      "id": "cf5e4da6-cdd5-4ec7-82bf-002c9445c980",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "Vi53INYcRrwTiiKm",
+          "mode": "list",
+          "cachedResultName": "careerpilot_jobs",
+          "cachedResultUrl": "/projects/RuqWie8Q07Os2caC/datatables/Vi53INYcRrwTiiKm"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "source",
+              "keyValue": "={{ $json.source }}"
+            },
+            {
+              "keyName": "external_id",
+              "keyValue": "={{ $json.external_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "is_remote": "={{ $json.is_remote }}",
+            "source": "={{ $json.source }}",
+            "external_id": "={{ $json.external_id }}",
+            "title": "={{ $json.title }}",
+            "location": "={{ $json.location }}",
+            "company": "={{ $json.company }}",
+            "job_url": "={{ $json.job_url }}",
+            "job_type": "={{ $json.job_type }}",
+            "category": "={{ $json.category }}",
+            "description": "={{ $json.description }}",
+            "salary": "={{ $json.salary }}",
+            "posted_at": "={{ $json.posted_at }}",
+            "discovered_at": "={{ $json.discovered_at }}",
+            "matched_keywords": "={{ $json.matched_keywords }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_url",
+              "displayName": "job_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_type",
+              "displayName": "job_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "salary",
+              "displayName": "salary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "posted_at",
+              "displayName": "posted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "is_remote",
+              "displayName": "is_remote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "matched_keywords",
+              "displayName": "matched_keywords",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "discovered_at",
+              "displayName": "discovered_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        304
+      ],
+      "id": "d944a825-eecf-4a1c-87c8-101379673115",
+      "name": "Upsert Indeed + LinkedIn Jobs"
+    },
+    {
+      "parameters": {
+        "url": "https://remotive.com/api/remote-jobs",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "100"
+            },
+            {
+              "name": "search",
+              "value": "wordpress"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -400,
+        96
+      ],
+      "id": "3175cfae-a507-4165-99d4-790c4dbf93f7",
+      "name": "Fetch Remotive WordPress"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Fetch Remotive Jobs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Arbeitnow Jobs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Remotive WordPress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Remotive Jobs": {
+      "main": [
+        [
+          {
+            "node": "Format Remotive Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Arbeitnow Jobs": {
+      "main": [
+        [
+          {
+            "node": "Format Arbeitnow Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Arbeitnow Jobs": {
+      "main": [
+        [
+          {
+            "node": "Upsert Arbeitnow Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Remotive Jobs": {
+      "main": [
+        [
+          {
+            "node": "Upsert Remotive Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Get a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a message": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Parse Indeed Alerts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Parse Linkedin Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Upsert Indeed + LinkedIn Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Indeed Alerts": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Linkedin Alerts": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Arbeitnow Jobs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Remotive Jobs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Remotive WordPress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Remotive WordPress": {
+      "main": [
+        [
+          {
+            "node": "Format Remotive Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q7cWxj4W5JHU6IKM",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "d1db47f9-8b6a-4945-923b-3262932677bd",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e6d8d7cf2fb65a1e3cf3fe299e914a5e212f567c3dfe444a1f905ef5c52d5025"
+  },
+  "nodeGroups": [],
+  "id": "5caQdAzB13aIRLqh",
+  "tags": []
+}

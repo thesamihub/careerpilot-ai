@@ -1,0 +1,29 @@
+# Secrets and local config
+.env
+*.key
+*.pem
+
+# Personal data and generated applications
+private/
+output/
+data/
+data,/
+*.pdf
+!docs/**/*.pdf
+
+# n8n / Docker local state
+n8n_data/
+ollama_data/
+*.log
+logs/
+
+# Python and Node leftovers
+venv/
+.venv/
+__pycache__/
+node_modules/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/

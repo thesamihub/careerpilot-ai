@@ -1,0 +1,876 @@
+{
+  "name": "CareerPilot - Application Packs",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        16,
+        -128
+      ],
+      "id": "3de814fd-0583-453e-b85e-a629bb2fdec1",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "fileSelector": "/files/private/master_cv.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "308264f0-64c8-4170-9a3f-f5396234cd1f",
+      "name": "Read Master CV"
+    },
+    {
+      "parameters": {
+        "jsCode": "const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\nreturn [{ json: { cv: JSON.parse(buf.toString('utf8')) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "a66140f4-a283-4e95-92f9-a37ecd6f45b3",
+      "name": "Load CV"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "Vi53INYcRrwTiiKm",
+          "mode": "list",
+          "cachedResultName": "careerpilot_jobs",
+          "cachedResultUrl": "/projects/RuqWie8Q07Os2caC/datatables/Vi53INYcRrwTiiKm"
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        0
+      ],
+      "id": "665416e4-14c4-4927-a522-8a12d2689d48",
+      "name": "Get Jobs"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cv = $('Load CV').first().json.cv;\nconst SKIP_STATUS = ['pack_ready', 'applied', 'rejected', 'ignored'];\nconst MAX = 10; \n\nconst rows = $input.all().map(i => i.json)\n  .filter(j => j.title && String(j.title).trim() !== '')\n  .filter(j => j.ai_analyzed === true)\n  .filter(j => ['apply', 'maybe'].includes(j.ai_recommendation))\n  .filter(j => !SKIP_STATUS.includes(j.status))\n  .filter(j => !j.pack_cv_file)\n  .sort((a, b) => (b.relevance_score || 0) - (a.relevance_score || 0))\n  .slice(0, MAX);\n\nreturn rows.map(job => ({ json: { job, cv } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "08ea9f9e-ba1d-4ee3-ac42-53187cd54de1",
+      "name": "Pick Jobs"
+    },
+    {
+      "parameters": {
+        "jsCode": "const GROUP_LABEL = { cloud: 'Cloud & Infrastructure', cicd: 'CI/CD & Version Control', containers: 'Containers', systems: 'Systems', networking: 'Networking', support: 'Support & Troubleshooting', web: 'Web & CMS', databases: 'Databases', scripting: 'Scripting' };\nconst TRACK_MAP = { devops_cloud: 'devops', linux_infra: 'devops', network: 'it_support', it_support: 'it_support', wordpress: 'wordpress' };\nconst SUFFIX = { basic: ' (basic)', exposure: ' (exposure)', learning: ' (learning)' };\nconst BUDGET = 4300;\n\nconst norm = s => String(s || '').toLowerCase().replace(/[\\/\\-]/g, ' ');\nconst rx = s => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\nconst esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst slug = s => String(s || '').normalize('NFKD').replace(/[^\\w\\s-]/g, '').trim().replace(/\\s+/g, '-').toLowerCase().slice(0, 40);\nconst list = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];\nconst lcFirst = t => t.charAt(0).toLowerCase() + t.slice(1);\nconst sentence = t => /[.!?]$/.test(t) ? t : t + '.';\n\nfunction matcher(job) {\n  const text = norm([job.title, job.description, job.required_skills, job.matched_keywords].join(' '));\n  return term => {\n    const e = rx(norm(term).trim());\n    return !!e && new RegExp('(^|[^a-z0-9])' + e + '([^a-z0-9]|$)').test(text);\n  };\n}\n\nfunction selectLines(job, cv) {\n  const has = matcher(job);\n  const track = TRACK_MAP[job.job_category] || 'devops';\n  const maxProjects = track === 'devops' ? 4 : 3;\n  const inTrack = b => (b.tracks || []).includes(track);\n  const pick = b => ({ id: b.id, text: (b.variants && b.variants[track]) || b.text, score: 1 + 2 * (b.tags || []).filter(has).length });\n\n  const experience = cv.experience.map(e => ({\n    title: e.title, org: e.org, dates: e.dates,\n    bullets: e.bullets.filter(inTrack).map(pick).sort((a, b) => b.score - a.score).slice(0, 4)\n  })).filter(e => e.bullets.length);\n\n  const projects = cv.projects.map(p => {\n    const bullets = p.bullets.filter(inTrack).map(pick).sort((a, b) => b.score - a.score);\n    return { name: p.name, link: p.link, bullets, total: bullets.reduce((s, b) => s + b.score, 0) };\n  }).filter(p => p.bullets.length).sort((a, b) => b.total - a.total).slice(0, maxProjects);\n\n  const ORDER = {\n    devops: ['cloud', 'cicd', 'containers', 'systems', 'networking', 'databases', 'scripting', 'web'],\n    it_support: ['systems', 'networking', 'support', 'cloud', 'containers', 'cicd', 'databases', 'scripting', 'web'],\n    wordpress: ['web', 'databases', 'systems', 'cicd', 'containers', 'cloud', 'scripting']\n  }[track];\n  const matchedSkill = s => has(s.name) || s.name.toLowerCase().split(/[,()\\/]\\s*/).some(has);\n  const trackSkills = cv.skills.filter(s => (s.tracks || []).includes(track));\n  const skills_grouped = ORDER.map(g => ({\n    label: GROUP_LABEL[g],\n    items: trackSkills.filter(s => s.group === g)\n      .sort((a, b) => Number(matchedSkill(b)) - Number(matchedSkill(a)))\n      .map(s => s.name + (SUFFIX[s.level] || ''))\n  })).filter(g => g.items.length);\n\n  return {\n    track, experience, projects, skills_grouped,\n    headline: cv.headlines[track], summary: cv.summaries[track],\n    contact: cv.contact, education: cv.education || [],\n    availability: (cv.availability || {})[track] || ''\n  };\n}\n\nfunction buildHtml(d) {\n  const c = d.contact || {};\n  const url = s => /^https?:\\/\\//.test(s) ? s : 'https://' + s;\n  const link = s => s ? '<a href=\"' + esc(url(s)) + '\">' + esc(s) + '</a>' : '';\n\n  let exp = d.experience.map(e => ({ ...e, bullets: e.bullets.slice(0, 3) }));\n  let proj = d.projects.map((p, i) => ({ ...p, bullets: p.bullets.slice(0, i === 0 ? 3 : 2) }));\n  const size = () => d.summary.length +\n    d.skills_grouped.reduce((n, g) => n + g.label.length + g.items.join(', ').length + 4, 0) +\n    [...exp, ...proj].reduce((n, x) => n + 70 + x.bullets.reduce((m, b) => m + b.text.length + 20, 0), 0);\n  while (size() > BUDGET) {\n    const cands = [];\n    [...exp, ...proj].forEach(x => { if (x.bullets.length > 1) x.bullets.forEach(b => cands.push({ x, b, i: cands.length })); });\n    if (cands.length) {\n      cands.sort((a, b) => a.b.score - b.b.score || b.i - a.i);\n      cands[0].x.bullets = cands[0].x.bullets.filter(y => y !== cands[0].b);\n    } else if (proj.length > 1) { proj.pop(); } else break;\n  }\n\n  const bullets = arr => '<ul>' + arr.map(b => '<li>' + esc(b.text) + '</li>').join('') + '</ul>';\n  const entry = (l, r, bl) => '<div class=\"e\"><div class=\"eh\"><span><b>' + l + '</b></span><span class=\"m\">' + r + '</span></div>' + (bl ? bullets(bl) : '') + '</div>';\n  const sec = (t, body) => body ? '<h2>' + t + '</h2>' + body : '';\n\n  const line1 = [esc(c.city), esc(c.email), esc(c.phone)].filter(Boolean).join(' &nbsp;•&nbsp; ');\n  const line2 = [link(c.github), link(c.linkedin)].filter(Boolean).join(' &nbsp;•&nbsp; ');\n  const skillsHtml = d.skills_grouped.map(g => '<p class=\"sk\"><b>' + esc(g.label) + ':</b> ' + esc(g.items.join(', ')) + '</p>').join('');\n  const expHtml = exp.map(e => entry(esc(e.title) + ', ' + esc(e.org), esc(e.dates), e.bullets)).join('');\n  const projHtml = proj.map(p => entry(esc(p.name), link(p.link), p.bullets)).join('');\n  const eduHtml = d.education.map(e => entry(esc(e.program) + ', ' + esc(e.school), esc([e.dates, e.note].filter(Boolean).join(' · ')), null)).join('');\n  const middle = d.track === 'devops' ? sec('Projects', projHtml) + sec('Experience', expHtml) : sec('Experience', expHtml) + sec('Projects', projHtml);\n\n  return `<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>${esc(c.name)} - CV</title>\n<style>\n@page { size: A4; margin: 11mm 13mm; }\n* { -webkit-print-color-adjust: exact; print-color-adjust: exact; }\nbody { font-family: Carlito, Calibri, \"Liberation Sans\", Arial, sans-serif; font-size: 9.6pt; line-height: 1.3; color: #1a1a1a; margin: 0; }\na { color: inherit; text-decoration: none; }\nh1 { font-size: 24pt; letter-spacing: 0.5px; margin: 0; color: #1f3a5f; text-align: center; }\n.sub { font-size: 11pt; color: #444; margin: 1px 0 3px; text-align: center; }\n.contact { font-size: 9pt; color: #333; margin-bottom: 4px; text-align: center; }\nh2 { font-size: 10pt; letter-spacing: 1.2px; text-transform: uppercase; color: #1f3a5f; border-bottom: 1.2px solid #1f3a5f; margin: 9px 0 4px; padding-bottom: 1px; }\n.e { margin-bottom: 4px; break-inside: avoid; }\n.eh { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }\n.m { font-size: 9pt; color: #555; white-space: nowrap; }\np { margin: 2px 0; }\n.sk { margin: 1px 0; }\nul { margin: 2px 0 0 16px; padding: 0; }\nli { margin: 1px 0; }\n</style></head><body>\n<h1>${esc(c.name)}</h1>\n<div class=\"sub\">${esc(d.headline)}</div>\n<div class=\"contact\">${line1}<br>${line2}</div>\n${sec('Summary', '<p>' + esc(d.summary) + '</p>')}\n${sec('Technical Skills', skillsHtml)}\n${middle}\n${sec('Education', eduHtml)}\n${sec('Availability', d.availability ? '<p>' + esc(d.availability) + '</p>' : '')}\n</body></html>`;\n}\n\nfunction buildMessage(d, job) {\n  const has = matcher(job);\n  const isWeak = s => /\\((basic|exposure|learning)\\)$/.test(s);\n  const parts = s => s.split(/[,()]/).map(x => x.trim()).filter(Boolean);\n  const groups = d.skills_grouped.filter(g => g.label !== 'Support & Troubleshooting');\n  let skills = [];\n  for (const g of groups) for (const s of g.items.filter(x => !isWeak(x))) {\n    const m = parts(s).find(has);\n    if (m && !skills.includes(m)) skills.push(m);\n  }\n  if (!skills.length) skills = groups.map(g => g.items.find(x => !isWeak(x))).filter(Boolean).map(s => parts(s)[0]).slice(0, 3);\n  skills = skills.slice(0, 4);\n\n  const all = [...d.projects, ...d.experience].flatMap(x => x.bullets);\n  const top = all.reduce((best, b) => (!best || b.score > best.score) ? b : best, null);\n  const cleanTitle = String(job.title).replace(/\\s*[\\(\\[].*?[\\)\\]]/g, '').trim();\n  const at = job.company ? ' at ' + job.company : '';\n  const school = ((d.education[0] || {}).school || '').replace(/\\s*\\(.*\\)/, '');\n  const usesInternship = d.track === 'wordpress' || (top && /^exp/.test(top.id)) || skills.some(s => /wordpress|cpanel|html|css|bootstrap|php/i.test(s));\n  const source = usesInternship ? 'my web development internship and personal projects' : 'personal projects';\n  const body =\n    'I am a Computer Science undergraduate at the ' + school + ', and I am applying for the ' + cleanTitle + ' position' + at + '. ' +\n    'I have hands-on experience with ' + list(skills) + ', from ' + source + '. ' +\n    (top ? 'For example, I ' + sentence(lcFirst(top.text)) + ' ' : '') +\n    'My CV is attached, and I would welcome the chance to discuss the role.';\n  const name = d.contact.name;\n  return { cleanTitle, subject: 'Application – ' + cleanTitle + ' – ' + name, message: 'Dear Hiring Team,\\n\\n' + body + '\\n\\nBest regards,\\n' + name };\n}\n\nconst out = [];\nconst today = new Date().toISOString().slice(0, 10);\nfor (const item of $input.all()) {\n  const { job, cv } = item.json;\n  const d = selectLines(job, cv);\n  const m = buildMessage(d, job);\n  const html = buildHtml(d);\n\n  const notes = [];\n  if (JSON.stringify(cv.contact).includes('<fill')) notes.push('Contact placeholders still in master_cv.json');\n  if (String(job.title).includes(' / ')) notes.push('Title lists several roles, so edit the first sentence');\n  if (!(job.description && String(job.description).trim())) notes.push('No description, so the match is based on the title only');\n  notes.push('Score ' + job.relevance_score + ', track ' + d.track + ', flags: ' + (job.red_flags || 'none'));\n\n    const cv_file = 'S' + (job.relevance_score ?? 0) + '_job' + job.id + '_' + slug(job.company) + '_' + slug(m.cleanTitle) + '_' + d.track + '.pdf';\n  const bin = await this.helpers.prepareBinaryData(Buffer.from(html, 'utf8'), 'index.html', 'text/html');\n  out.push({\n    json: { row_id: job.id, cv_file, subject: m.subject, message: m.message, notes: notes.join(' | '), packed_at: today, label: d.track + ': ' + job.title + ' @ ' + job.company,\n            job_url: job.job_url, company: job.company, title: job.title, score: job.relevance_score, track: d.track },\n    binary: { data: bin }\n  });\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "cf3e4d83-8f07-42c5-8e18-a0e18536547e",
+      "name": "Build Pack"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://gotenberg:3000/forms/chromium/convert/html",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "files",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "preferCssPageSize",
+              "value": "true"
+            },
+            {
+              "name": "printBackground",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "pdf"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1312,
+        0
+      ],
+      "id": "f605cd32-1f82-496a-9cc2-1180e29f806c",
+      "name": "Make PDF"
+    },
+    {
+      "parameters": {
+        "jsCode": "const packs = $('Build Pack').all();\nreturn $input.all().map((item, i) => ({\n  json: { ...packs[i].json },\n  binary: { pdf: item.binary.pdf }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        0
+      ],
+      "id": "0914fb80-9026-48b6-9a2d-4fb1a3c167f6",
+      "name": "Assemble Pack"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/files/output/{{ $json.cv_file }}",
+        "dataPropertyName": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        0
+      ],
+      "id": "7993589f-71a0-4b71-bfd9-f03d549d6245",
+      "name": "Save PDF"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $('Assemble Pack').all().map(i => ({ json: i.json }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        0
+      ],
+      "id": "916e9a29-9b40-48ae-b870-3cb84b2f10fb",
+      "name": "Collect Results"
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  const text = [\n    'JOB: ' + j.title + ' @ ' + j.company,\n    'SCORE: ' + j.score + '   CV TYPE: ' + j.track,\n    'APPLY LINK: ' + j.job_url,\n    'CV FILE TO UPLOAD: ' + j.cv_file,\n    '',\n    'NOTES: ' + j.notes,\n    '',\n    'SUBJECT: ' + j.subject,\n    '',\n    j.message\n  ].join('\\n');\n  const note_file = j.cv_file.replace(/\\.pdf$/, '.txt');\n  const bin = await this.helpers.prepareBinaryData(Buffer.from(text, 'utf8'), note_file, 'text/plain');\n  out.push({ json: { note_file }, binary: { data: bin } });\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        -96
+      ],
+      "id": "9bde7b38-517e-4147-8a5e-b687b4fe73a4",
+      "name": "Make Pack Note"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "Vi53INYcRrwTiiKm",
+          "mode": "list",
+          "cachedResultName": "careerpilot_jobs",
+          "cachedResultUrl": "/projects/RuqWie8Q07Os2caC/datatables/Vi53INYcRrwTiiKm"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.row_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "is_remote": false,
+            "ai_analyzed": false,
+            "status": "pack_ready",
+            "pack_cv_file": "={{ $json.cv_file }}",
+            "pack_subject": "={{ $json.subject }}",
+            "pack_message": "={{ $json.message }}",
+            "pack_notes": "={{ $json.notes }}",
+            "packed_at": "={{ $json.packed_at}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_url",
+              "displayName": "job_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_type",
+              "displayName": "job_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "salary",
+              "displayName": "salary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "posted_at",
+              "displayName": "posted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "is_remote",
+              "displayName": "is_remote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "matched_keywords",
+              "displayName": "matched_keywords",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "discovered_at",
+              "displayName": "discovered_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "ai_analyzed",
+              "displayName": "ai_analyzed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "relevance_score",
+              "displayName": "relevance_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_category",
+              "displayName": "job_category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "seniority",
+              "displayName": "seniority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "required_skills",
+              "displayName": "required_skills",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "nice_to_have_skills",
+              "displayName": "nice_to_have_skills",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "ai_reason",
+              "displayName": "ai_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "red_flags",
+              "displayName": "red_flags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "ai_recommendation",
+              "displayName": "ai_recommendation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "pack_cv_file",
+              "displayName": "pack_cv_file",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "pack_subject",
+              "displayName": "pack_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "pack_message",
+              "displayName": "pack_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "pack_notes",
+              "displayName": "pack_notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "packed_at",
+              "displayName": "packed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2176,
+        96
+      ],
+      "id": "b5e2e51e-93c6-4f87-b060-a53d083c489e",
+      "name": "Save Pack Status"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/files/output/{{ $json.note_file }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2400,
+        -96
+      ],
+      "id": "17dc3300-cc35-4eba-a980-e5a7a3a5370c",
+      "name": "Read/Write Files from Disk"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 11
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        16,
+        112
+      ],
+      "id": "92439793-7fbf-4290-aeed-6809671138d3",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1QWnaN18HlDkmHKaHuAOOdN02uIwWYSa7h_nAsudok00",
+          "mode": "list",
+          "cachedResultName": "CareerPilot_Applications",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1QWnaN18HlDkmHKaHuAOOdN02uIwWYSa7h_nAsudok00/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Application",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1QWnaN18HlDkmHKaHuAOOdN02uIwWYSa7h_nAsudok00/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+            "Company": "={{ $json.company }}",
+            "Job Title": "={{ $json.title }}",
+            "Relevance Score": "={{ $json.relevance_score }}",
+            "Category": "={{ $json.job_category }}",
+            "AI Recommendation": "={{ $json.ai_recommendation }}",
+            "CV File": "={{ $json.pack_cv_file }}",
+            "Apply Link": "={{ $json.job_url }}",
+            "Status": "={{ $json.status }}",
+            "Job id": "={{ $json.id }}"
+          },
+          "matchingColumns": [
+            "Job id"
+          ],
+          "schema": [
+            {
+              "id": "Job id",
+              "displayName": "Job id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Relevance Score",
+              "displayName": "Relevance Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "AI Recommendation",
+              "displayName": "AI Recommendation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "CV File",
+              "displayName": "CV File",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Apply Link",
+              "displayName": "Apply Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2400,
+        96
+      ],
+      "id": "d56db1ca-834c-4e44-8da0-a27b56e92d45",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "dA8wgYGkOcxyr0Du",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Read Master CV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Master CV": {
+      "main": [
+        [
+          {
+            "node": "Load CV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load CV": {
+      "main": [
+        [
+          {
+            "node": "Get Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Jobs": {
+      "main": [
+        [
+          {
+            "node": "Pick Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Jobs": {
+      "main": [
+        [
+          {
+            "node": "Build Pack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Pack": {
+      "main": [
+        [
+          {
+            "node": "Make PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Make PDF": {
+      "main": [
+        [
+          {
+            "node": "Assemble Pack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Pack": {
+      "main": [
+        [
+          {
+            "node": "Save PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save PDF": {
+      "main": [
+        [
+          {
+            "node": "Collect Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Results": {
+      "main": [
+        [
+          {
+            "node": "Save Pack Status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Make Pack Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Make Pack Note": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Master CV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Pack Status": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "045d14ea-87c3-498c-9137-f1d6ddb928aa",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e6d8d7cf2fb65a1e3cf3fe299e914a5e212f567c3dfe444a1f905ef5c52d5025"
+  },
+  "nodeGroups": [],
+  "id": "fWbgHO5OHD0GtdRX",
+  "tags": []
+}

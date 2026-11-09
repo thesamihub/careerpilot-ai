@@ -1,0 +1,478 @@
+{
+  "name": "CareerPilot - AI Job Analyzer",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "Vi53INYcRrwTiiKm",
+          "mode": "list",
+          "cachedResultName": "careerpilot_jobs",
+          "cachedResultUrl": "/projects/RuqWie8Q07Os2caC/datatables/Vi53INYcRrwTiiKm"
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -560,
+        -16
+      ],
+      "id": "42d72b15-e20e-4f6a-9b1a-5ec224ce512d",
+      "name": "Get Jobs"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.request }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -176,
+        -16
+      ],
+      "id": "3c72216e-cd3c-4a3b-b65d-6bd4d3c61caf",
+      "name": "Ask Ollama",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const jobs = $input.all()\n  .filter(i => i.json.title && String(i.json.title).trim() !== '')\n  .filter(i => !i.json.ai_analyzed)\n  .slice(0, 10);\n\nconst SYSTEM = `You score job postings for one candidate. Reply with JSON only.\n\nCandidate: junior-level, based in Karachi, Pakistan. Wants DevOps, SRE, cloud (AWS/Azure/GCP), Kubernetes/Docker, Linux, system administration, infrastructure/platform engineering, network engineering, IT support / technical support.\nCan work: on-site or hybrid in Karachi, or remote roles open to Pakistan.\n\nRules:\n- Use ONLY information in the posting. If the description is empty, judge from title, company and location, and say so in ai_reason.\n- Never invent skills or requirements. Use empty arrays if nothing is stated.\n- If the location is outside Pakistan and the job is not remote, subtract 20 from the score.\n- job_category must be one of: devops_cloud, linux_infra, network, it_support, software_dev, other.\n- seniority must be one of: intern, junior, mid, senior, unknown.\n- ai_recommendation must be one of: apply, maybe, skip.\n- required_skills and nice_to_have_skills: at most 8 items each, no duplicates.\n\nJSON shape:\n{\"relevance_score\": 0, \"job_category\": \"\", \"seniority\": \"\", \"required_skills\": [], \"nice_to_have_skills\": [], \"ai_recommendation\": \"\", \"ai_reason\": \"\"}`;\n\nreturn jobs.map(i => {\n  const j = i.json;\n  const posting = [\n    'Title: ' + (j.title || ''),\n    'Company: ' + (j.company || ''),\n    'Location: ' + (j.location || ''),\n    'Remote: ' + (j.is_remote ? 'yes' : 'no'),\n    'Salary: ' + (j.salary || 'not stated'),\n    'Description: ' + String(j.description || '(none provided)').slice(0, 2000)\n  ].join('\\n');\n\n  return { json: {\n    row_id: j.id,\n    title: j.title,\n    request: {\n      model: 'qwen2.5:3b',\n      stream: false,\n      format: 'json',\n      keep_alive: '30m',\n      options: { temperature: 0.1, num_ctx: 4096, num_predict: 600 },\n      messages: [\n        { role: 'system', content: SYSTEM },\n        { role: 'user', content: posting }\n      ]\n    }\n  }};\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        -16
+      ],
+      "id": "fe02fb50-61e8-45e3-94cc-2db5a564b354",
+      "name": "Build Prompt",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ALLOWED_CAT = ['devops_cloud','linux_infra','network','it_support','software_dev','wordpress','other'];\nconst ALLOWED_SEN = ['intern','junior','mid','senior','unknown'];\nconst prompts = $('Build Prompt').all();\nconst jobs = $('Get Jobs').all();\nconst arr = v => Array.isArray(v) ? v.map(String).slice(0, 8).join(', ') : '';\n\nfunction classify(title) {\n  const t = (title || '').toLowerCase();\n  if (/devops|site reliability|\\bsre\\b|cloud|kubernetes|platform engineer|mlops/.test(t)) return 'devops_cloud';\n  if (/linux|system(s)? (admin|engineer)|sysadmin|infrastructure/.test(t)) return 'linux_infra';\n  if (/network/.test(t)) return 'network';\n  if (/it support|technical support|help ?desk|support engineer/.test(t)) return 'it_support';\n  if (/developer|software|engineer|full.?stack|back.?end|front.?end|qa/.test(t)) return 'software_dev';\n  if (/wordpress|\\bwp\\b|elementor|woocommerce/.test(t)) return 'wordpress';\n\n  return null;\n}\n\nfunction titleSeniority(title) {\n  const t = (title || '').toLowerCase();\n  if (/senior|\\bsr\\b|lead|principal|staff|head of/.test(t)) return 'senior';\n  if (/intern|trainee|graduate/.test(t)) return 'intern';\n  if (/junior|\\bjr\\b|entry/.test(t)) return 'junior';\n  return null;\n}\n\nfunction analyze(j) {\n  const text = [j.title, j.description, j.location].join(' ');\n  const flags = [];\n  \n  if (/work authori[sz]ation|visa sponsorship|(must|need to) be (a )?(u\\.?s\\.?|us) (citizen|resident)|security clearance|clearance required/i.test(text)) {\n    flags.push('work authorization or clearance mentioned');\n  }\n  \n  if (/night shift|graveyard/i.test(text)) {\n    flags.push('night shift');\n  }\n  \n  const yrs = [...text.matchAll(/(\\d+)\\s*\\+?\\s*years/gi)].map(m => Number(m[1])).filter(n => n < 30);\n  const maxYrs = yrs.length ? Math.max(...yrs) : 0;\n  if (maxYrs >= 3) flags.push(maxYrs + '+ years experience mentioned');\n  \n  const city = j.location || '';\n  const inKarachi = /karachi/i.test(city);\n  const inPakistan = inKarachi || /pakistan|lahore|islamabad|rawalpindi|faisalabad|multan|peshawar|quetta|sialkot|gujranwala/i.test(city);\n  \n  // FIXED LOCATION CHECK:\n  if (!j.is_remote && !inPakistan) {\n    flags.push('on-site outside Pakistan');\n  } else if (!j.is_remote && !inKarachi) {\n    flags.push('on-site in another Pakistani city');\n  }\n  \n  return { flags, maxYrs };\n}\n\nconst BASE = { devops_cloud: 85, linux_infra: 72, network: 68, it_support: 52, wordpress: 60, software_dev: 28, other: 8 };\n\nconst out = [];\n$input.all().forEach((item, idx) => {\n  const row_id = prompts[idx].json.row_id;\n  let r;\n  try { r = JSON.parse(item.json.message.content); } catch (e) { return; }\n  const job = (jobs.find(x => x.json.id == row_id) || { json: {} }).json;\n\n  const cat = classify(job.title) || (ALLOWED_CAT.includes(r.job_category) ? r.job_category : 'other');\n  const seniority = titleSeniority(job.title) || (ALLOWED_SEN.includes(r.seniority) ? r.seniority : 'unknown');\n  const { flags, maxYrs } = analyze(job);\n  const IT_TERMS = /\\b(computer|network|networking|windows|linux|hardware|software|desktop|laptop|printer|helpdesk|help desk|troubleshoot\\w*|server|cloud|aws|azure|ticket\\w*|it support|technology|infrastructure|devops|active directory|vpn|lan|wan)\\b/i;\n  const descLen = String(job.description || '').trim().length;\n  if (cat === 'it_support' && descLen >= 60 && !IT_TERMS.test(job.description)) flags.push('posting text has no IT terms');\n\n  let score = BASE[cat];\n  if (seniority === 'senior') score -= 35;\n  if (/staff|principal|head of/i.test(job.title || '')) score -= 15;\n  if (maxYrs >= 5) score -= 15; else if (maxYrs >= 3) score -= 5;\n  if (flags.some(f => f.startsWith('on-site outside'))) score -= 20;\n  if (flags.some(f => f.startsWith('work authorization'))) score -= 20;\n  if (flags.includes('posting text has no IT terms')) score -= 30;\n  score = Math.max(0, Math.min(100, score));\n  let rec = score >= 65 ? 'apply' : score >= 40 ? 'maybe' : 'skip';\n  if (maxYrs >= 5 && rec === 'apply') rec = 'maybe';\n  if (flags.includes('on-site in another Pakistani city')) score -= 25;\n  out.push({ json: {\n    row_id,\n    ai_analyzed: true,\n    relevance_score: score,\n    job_category: cat,\n    seniority,\n    required_skills: arr(r.required_skills),\n    nice_to_have_skills: arr(r.nice_to_have_skills),\n    red_flags: flags.join(', '),\n    ai_recommendation: rec,\n    ai_reason: ('Category ' + cat + ', seniority ' + seniority + '. Model note: ' + String(r.ai_reason || '')).slice(0, 300)\n  }});\n});\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        -16
+      ],
+      "id": "c2488e76-7655-4206-8a4e-8fc96e925410",
+      "name": "Parse AI Result"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "value": "Vi53INYcRrwTiiKm",
+          "mode": "list",
+          "cachedResultName": "careerpilot_jobs",
+          "cachedResultUrl": "/projects/RuqWie8Q07Os2caC/datatables/Vi53INYcRrwTiiKm"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyValue": "={{ $json.row_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "is_remote": false,
+            "ai_analyzed": "={{ $json.ai_analyzed }}",
+            "relevance_score": "={{ $json.relevance_score }}",
+            "job_category": "={{ $json.job_category }}",
+            "required_skills": "={{ $json.required_skills }}",
+            "seniority": "={{ $json.seniority }}",
+            "nice_to_have_skills": "={{ $json.nice_to_have_skills }}",
+            "red_flags": "={{ $json.red_flags }}",
+            "ai_recommendation": "={{ $json.ai_recommendation }}",
+            "ai_reason": "={{ $json.ai_reason }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "external_id",
+              "displayName": "external_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "location",
+              "displayName": "location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_url",
+              "displayName": "job_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_type",
+              "displayName": "job_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "salary",
+              "displayName": "salary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "posted_at",
+              "displayName": "posted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "is_remote",
+              "displayName": "is_remote",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "matched_keywords",
+              "displayName": "matched_keywords",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "discovered_at",
+              "displayName": "discovered_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "ai_analyzed",
+              "displayName": "ai_analyzed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "relevance_score",
+              "displayName": "relevance_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "job_category",
+              "displayName": "job_category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "seniority",
+              "displayName": "seniority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "required_skills",
+              "displayName": "required_skills",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "nice_to_have_skills",
+              "displayName": "nice_to_have_skills",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "ai_reason",
+              "displayName": "ai_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "red_flags",
+              "displayName": "red_flags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "ai_recommendation",
+              "displayName": "ai_recommendation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        -16
+      ],
+      "id": "9da9e011-6af5-41a2-abf1-ef4c80614d7b",
+      "name": "Save AI Results"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 3
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -784,
+        96
+      ],
+      "id": "2389738f-7a6a-4306-9f6f-e6dba98ef1b4",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -784,
+        -144
+      ],
+      "id": "766339a2-6055-4282-b8f5-8d1b965dc65d",
+      "name": "When clicking ‘Execute workflow’"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Jobs": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Ollama": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "Ask Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Result": {
+      "main": [
+        [
+          {
+            "node": "Save AI Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "q7cWxj4W5JHU6IKM",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "cec6c14e-a26d-45e0-acc4-3124a97445eb",
+  "meta": {
+    "instanceId": "e6d8d7cf2fb65a1e3cf3fe299e914a5e212f567c3dfe444a1f905ef5c52d5025"
+  },
+  "nodeGroups": [],
+  "id": "CPXDPZ1MZi7wGur3",
+  "tags": []
+}
